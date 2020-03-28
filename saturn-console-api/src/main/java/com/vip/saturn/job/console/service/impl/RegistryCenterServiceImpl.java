@@ -19,7 +19,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.vip.saturn.job.console.SaturnEnvProperties;
-import com.vip.saturn.job.console.domain.*;
+import com.vip.saturn.job.console.domain.NamespaceDomainInfo;
+import com.vip.saturn.job.console.domain.RegistryCenterClient;
+import com.vip.saturn.job.console.domain.RegistryCenterConfiguration;
+import com.vip.saturn.job.console.domain.ZkCluster;
 import com.vip.saturn.job.console.exception.SaturnJobConsoleException;
 import com.vip.saturn.job.console.exception.SaturnJobConsoleHttpException;
 import com.vip.saturn.job.console.mybatis.entity.NamespaceInfo;
@@ -397,6 +400,7 @@ public class RegistryCenterServiceImpl implements RegistryCenterService {
 		}
 		// 直接赋值新的
 		zkClusterMap = (LinkedHashMap<String, ZkCluster>) newClusterMap;
+		log.info("new zkClusterMap is : {}", zkClusterMap);
 		allOnlineNamespaces = allOnlineNamespacesTemp;
 	}
 
@@ -1372,12 +1376,12 @@ public class RegistryCenterServiceImpl implements RegistryCenterService {
 		try {
 			RegistryCenterConfiguration registryCenterConfiguration = findConfigByNamespace(namespace);
 			if (registryCenterConfiguration == null) {
-				throw new SaturnJobConsoleException("Connect zookeeper failed");
+				throw new SaturnJobConsoleException("find registryCenterConfiguration failed");
 			}
 
 			String nns = registryCenterConfiguration.getNameAndNamespace();
 			if (nns == null) {
-				throw new SaturnJobConsoleException("Connect zookeeper failed");
+				throw new SaturnJobConsoleException("get name and namespace failed");
 			}
 
 			String zkAddressList = registryCenterConfiguration.getZkAddressList();
@@ -1416,4 +1420,74 @@ public class RegistryCenterServiceImpl implements RegistryCenterService {
 		return curatorFrameworkOp;
 	}
 
+	@Override
+	public synchronized void refreshRegistryCenterForNamespace(String zkClusterName, String namespace) {
+		ZkCluster targetZkCluster;
+		Map<String, ZkCluster> zkClusterMap;
+		zkClusterMap = getTargetZkCluster(zkClusterName);
+		updateRegistryCenterConfiguration(namespace, zkClusterMap.get(zkClusterName).getZkAddr(), zkClusterName);
+
+		closeInvalidZkClient(zkClusterMap);
+		connectToZkClusterIfPossible(zkClusterMap);
+
+		targetZkCluster = zkClusterMap.get(zkClusterName);
+		if (targetZkCluster != null) {
+			List<String> allOnlineNamespacesTemp = new ArrayList<>();
+			List filteredList = getTargetNamespaceZkClusterMapping(zkClusterName, namespace);
+			initOrUpdateNamespace(allOnlineNamespacesTemp, targetZkCluster, filteredList,
+					targetZkCluster.getRegCenterConfList());
+			updateAllOnlineNamespaces(namespace);
+		}
+		log.info("refreshRegistryCenterForNamespace done : {}, {}", zkClusterName, namespace);
+	}
+
+	private Map<String, ZkCluster> getTargetZkCluster(String zkCluster) {
+		Map<String, ZkCluster> result = new HashMap<>(1);
+		Map<String, ZkCluster> zkClusterInfo = getZkClusterInfo();
+		Iterator<Map.Entry<String, ZkCluster>> entries = zkClusterInfo.entrySet().iterator();
+		while (entries.hasNext()) {
+			Map.Entry<String, ZkCluster> entry = entries.next();
+			if (entry.getKey().equals(zkCluster)) {
+				result.put(zkCluster, entry.getValue());
+				break;
+			}
+		}
+		return result;
+	}
+
+	private List<NamespaceZkClusterMapping> getTargetNamespaceZkClusterMapping(String zkCluster, String namespace) {
+		List<NamespaceZkClusterMapping> nsZkClusterMappingList = namespaceZkClusterMapping4SqlService
+				.getAllMappingsOfCluster(zkCluster);
+		List<NamespaceZkClusterMapping> filteredList = new ArrayList<>();
+		for (NamespaceZkClusterMapping n : nsZkClusterMappingList) {
+			if (n.getNamespace().equals(namespace)) {
+				filteredList.add(n);
+				break;
+			}
+		}
+		return nsZkClusterMappingList;
+	}
+
+	private void updateRegistryCenterConfiguration(String namespace, String zkAddressList, String zkClusterName) {
+		List<RegistryCenterConfiguration> sourceRegCenterConfList = zkClusterMap.get(zkClusterName)
+				.getRegCenterConfList();
+		boolean regCenterConfAlreadyExisted = false;
+		for (RegistryCenterConfiguration conf : sourceRegCenterConfList) {
+			if (conf.getNamespace().equals(namespace)) {
+				regCenterConfAlreadyExisted = true;
+				break;
+			}
+		}
+		if (!regCenterConfAlreadyExisted) {
+			RegistryCenterConfiguration registryCenterConfiguration = new RegistryCenterConfiguration("", namespace,
+					zkAddressList);
+			zkClusterMap.get(zkClusterName).getRegCenterConfList().add(registryCenterConfiguration);
+		}
+	}
+
+	private void updateAllOnlineNamespaces(String namespace) {
+		if (!allOnlineNamespaces.contains(namespace)) {
+			allOnlineNamespaces.add(namespace);
+		}
+	}
 }

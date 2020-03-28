@@ -19,37 +19,40 @@
             </el-row>
         </div>
         <div class="page-container">
-            <FilterPageList ref="pageListRef" :get-data="getJobList" :total="total" :order-by="orderBy" :filters="filters" v-loading="tableLoading" element-loading-text="请稍等···">
-                <template slot-scope="scope">
+            <div>
                     <el-form :inline="true" class="table-filter">
                         <el-form-item label="">
-                            <el-select style="width: 140px;" v-model="filters.groups.value" @change="scope.search">
-                                <el-option label="全部分组" value=""></el-option>
+                            <el-select style="width: 250px;" placeholder="请选择分组" multiple collapse-tags v-model="filters.groups" @change="filterJobList">
                                 <el-option v-for="item in groupList" :label="item" :value="item" :key="item"></el-option>
                             </el-select>
                         </el-form-item>
                         <el-form-item label="">
-                            <el-select style="width: 140px;" v-model="filters.status.value" @change="scope.search">
+                            <el-select style="width: 140px;" v-model="filters.status" @change="filterJobList">
                                 <el-option label="全部状态" value=""></el-option>
                                 <el-option v-for="item in $option.jobStatusTypes" :label="item.label" :value="item.value" :key="item.value"></el-option>
                             </el-select>
                         </el-form-item>
                         <el-form-item label="">
-                            <el-input :placeholder="filterColumnPlaceholder" v-model.trim="filters[selectColumn].value" @keyup.enter.native="scope.search">
+                            <el-select style="width: 140px;" v-model="filters.jobType" @change="filterJobList">
+                                <el-option label="全部作业类型" value=""></el-option>
+                                <el-option v-for="item in $option.jobTypes" :label="item.label" :value="item.value" :key="item.value"></el-option>
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="">
+                            <el-input :placeholder="filterColumnPlaceholder" v-model.trim="filters[selectColumn]" @keyup.enter.native="filterJobList">
                               <el-select style="width: 120px;" slot="prepend" v-model="selectColumn" @change="selectColumnChange">
-                                  <el-option label="作业名" value="jobName"></el-option>
-                                  <el-option label="作业描述" value="description"></el-option>
+                                  <el-option v-for="item in $option.jobOverviewInputFilters" :key="item.value" :label="item.label" :value="item.value"></el-option>
                               </el-select>
                             </el-input>
                         </el-form-item>
                         <el-form-item>
-                            <el-button type="primary" icon="el-icon-search" @click="scope.search">查询</el-button>
+                            <el-button type="primary" icon="el-icon-search" @click="filterJobList">查询</el-button>
                         </el-form-item>
                     </el-form>
                     <div class="page-table" v-loading="loading" element-loading-text="请稍等···">
                         <div class="page-table-header">
                             <div class="page-table-header-title"><i class="fa fa-list"></i>作业列表
-                                <el-button type="text" @click="scope.search"><i class="fa fa-refresh"></i></el-button>
+                                <el-button type="text" @click="getJobList"><i class="fa fa-refresh"></i></el-button>
                             </div>
                             <div class="page-table-header-separator"></div>
                             <div>
@@ -57,6 +60,7 @@
                                 <el-button @click="batchDisabled()" v-if="$common.hasPerm('job:batchDisable', domainName)"><i class="fa fa-stop-circle text-warning"></i>禁用</el-button>
                                 <el-button @click="batchDelete()" v-if="$common.hasPerm('job:batchRemove', domainName)"><i class="fa fa-trash text-danger"></i>删除</el-button>
                                 <el-button @click="batchPriority()" v-if="$common.hasPerm('job:batchSetPreferExecutors', domainName)"><i class="fa fa-level-up text-btn"></i>优先</el-button>
+                                <el-button @click="batchGroup()"><i class="fa fa-object-group text-btn"></i>分组</el-button>
                             </div>
                             <div class="pull-right">
                                 <el-button @click="handleAdd()" v-if="$common.hasPerm('job:add', domainName)"><i class="fa fa-plus-circle text-btn"></i>添加</el-button>
@@ -65,7 +69,7 @@
                                 <el-button @click="handleArrangeLayout()"><i class="fa fa-line-chart text-btn"></i>作业依赖图</el-button>
                             </div>
                         </div>
-                        <el-table stripe border ref="multipleTable" @selection-change="handleSelectionChange" :data="jobList" @sort-change="scope.onSortChange" style="width: 100%">
+                        <el-table stripe border ref="multipleTable" @selection-change="handleSelectionChange" :data="jobList" @sort-change="sortChange" style="width: 100%">
                             <el-table-column type="selection" width="55"></el-table-column>
                             <el-table-column prop="jobName" label="作业名" sortable="custom">
                                 <template slot-scope="scope">
@@ -92,7 +96,12 @@
                                     {{scope.row.description}}
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="groups" label="分组" width="120px"></el-table-column>
+                            <el-table-column prop="groups" label="分组">
+                                <template slot-scope="scope">
+                                    <el-tag v-if="scope.row.groups === ''" type="" size="mini">未分组</el-tag>
+                                    <el-tag v-else type="" size="mini" style="margin-right: 3px;margin-bottom: 3px;" v-for="item in $array.strToArray(scope.row.groups)" :key="item">{{item}}</el-tag>
+                                </template>
+                            </el-table-column>
                             <el-table-column prop="shardingTotalCount" label="分片数" width="70px"></el-table-column>
                             <el-table-column prop="shardingList" label="是否已分配分片" width="130px">
                                 <template slot-scope="scope">
@@ -118,8 +127,16 @@
                             </el-table-column>
                         </el-table>
                     </div>
-                </template>
-            </FilterPageList>
+                <el-pagination
+                  @current-change="onCurrentChange"
+                  @size-change="onPageSize"
+                  :current-page="currentPage"
+                  :page-sizes="[10, 25, 50, 100, 200, '所有']"
+                  :page-size="pageSize"
+                  layout="total, sizes, prev, pager, next, jumper"
+                  :total="total">
+                </el-pagination>
+            </div>
             <div v-if="isJobInfoVisible">
                 <job-info-dialog :domain-name="domainName" :job-info="jobInfo" :job-info-title="jobInfoTitle" :job-info-operation="jobInfoOperation" @job-info-success="jobInfoSuccess" @close-dialog="closeDialog"></job-info-dialog>
             </div>
@@ -135,6 +152,9 @@
             <div v-if="isArrangeLayoutVisible">
                 <arrange-layout-dialog :arrange-layout-info="arrangeLayoutInfo" @job-redirect="jobRedirect" @close-dialog="closeArrangeLayoutDialog"></arrange-layout-dialog>
             </div>
+            <div v-if="isJobGroupVisible">
+                <job-group-dialog :job-groups="jobGroups" @job-group-success="jobGroupSuccess" @close-dialog="closeJobGroupDialog"></job-group-dialog>
+            </div>
         </div>
     </div>
 </template>
@@ -146,7 +166,6 @@ export default {
   data() {
     return {
       loading: false,
-      tableLoading: false,
       isJobInfoVisible: false,
       jobInfoTitle: '',
       jobInfoOperation: '',
@@ -167,13 +186,10 @@ export default {
         enabledNumber: 0,
         abnormalNumber: 0,
       },
-      filters: {
-        jobName: { value: '' },
-        groups: { value: '', precise: true },
-        status: { value: '', precise: true },
-        description: { value: '' },
-      },
+      filters: JSON.parse(JSON.stringify(this.$option.jobOverviewFilters)),
       jobList: [],
+      pageSize: 25,
+      currentPage: 1,
       total: 0,
       orderBy: '',
       groupList: [],
@@ -185,9 +201,46 @@ export default {
         STOPPED: '',
       },
       multipleSelection: [],
+      isJobGroupVisible: false,
+      jobGroups: [],
     };
   },
   methods: {
+    onCurrentChange(page) {
+      this.currentPage = page;
+      this.getJobList();
+    },
+    onPageSize(pageSize) {
+      if (JSON.stringify(pageSize) === 'null') {
+        this.pageSize = this.total;
+      } else {
+        this.pageSize = pageSize;
+      }
+      this.getJobList();
+    },
+    sortChange(sort) {
+      this.order = sort.order;
+      this.getJobList();
+    },
+    batchGroup() {
+      this.batchOperation('分组', (arr) => {
+        this.jobGroups = arr.map((obj) => {
+          const rObj = {};
+          rObj.jobName = obj.jobName;
+          rObj.groups = obj.groups;
+          return rObj;
+        });
+        this.isJobGroupVisible = true;
+      });
+    },
+    jobGroupSuccess() {
+      this.closeJobGroupDialog();
+      this.init();
+      this.$message.successNotify('批量作业分组操作成功');
+    },
+    closeJobGroupDialog() {
+      this.isJobGroupVisible = false;
+    },
     handleArrangeLayout() {
       this.$http.get(`/console/namespaces/${this.domainName}/jobs/arrangeLayout`).then((data) => {
         this.arrangeLayoutInfo = data;
@@ -216,8 +269,9 @@ export default {
       .catch(() => { this.$http.buildErrorHandler('获取作业分片分配失败！'); });
     },
     selectColumnChange() {
-      this.filters.jobName.value = '';
-      this.filters.description.value = '';
+      this.$option.jobOverviewInputFilters.forEach((ele) => {
+        this.filters[ele.value] = '';
+      });
     },
     toAbnormalJobPage() {
       this.$router.push({ name: 'namespace_abnormal_jobs', params: { domain: this.domainName } });
@@ -239,7 +293,7 @@ export default {
     },
     closeImportResultDialog() {
       this.isImportResultVisible = false;
-      this.refreshPage();
+      this.init();
     },
     handleAdd() {
       this.isJobInfoVisible = true;
@@ -267,7 +321,7 @@ export default {
     },
     jobInfoSuccess() {
       this.isJobInfoVisible = false;
-      this.refreshPage();
+      this.init();
       this.$message.successNotify('保存作业操作成功');
     },
     batchEnabled() {
@@ -308,7 +362,7 @@ export default {
           const confirmText = stopedJob.length < 10 ? `确认删除作业 ${params.jobNames} 吗?` : `确认删除已选的 ${stopedJob.length} 条作业吗?`;
           this.$message.confirmMessage(confirmText, () => {
             this.$http.delete(`/console/namespaces/${this.domainName}/jobs`, params).then(() => {
-              this.refreshPage();
+              this.init();
               this.$message.successNotify('批量删除作业操作成功');
             })
             .catch(() => { this.$http.buildErrorHandler('批量删除作业请求失败！'); });
@@ -328,7 +382,7 @@ export default {
     },
     batchPrioritySuccess() {
       this.isBatchPriorityVisible = false;
-      this.refreshPage();
+      this.init();
       this.$message.successNotify('批量设置作业的优先Executors成功');
     },
     batchOperation(text, callback) {
@@ -371,7 +425,7 @@ export default {
     handleDelete(row) {
       this.$message.confirmMessage(`确认删除作业 ${row.jobName} 吗?`, () => {
         this.$http.delete(`/console/namespaces/${this.domainName}/jobs/${row.jobName}`).then(() => {
-          this.refreshPage();
+          this.init();
           this.$message.successNotify('删除作业操作成功');
         })
         .catch(() => { this.$http.buildErrorHandler('删除作业请求失败！'); });
@@ -395,14 +449,14 @@ export default {
     batchActiveRequest(params, reqUrl) {
       this.$http.post(`/console/namespaces/${this.domainName}/jobs/${reqUrl}`, params).then(() => {
         this.$message.successNotify('操作成功');
-        this.refreshPage();
+        this.init();
       })
       .catch(() => { this.$http.buildErrorHandler(`${reqUrl}请求失败！`); });
     },
     activeRequest(jobName, reqUrl) {
       this.$http.post(`/console/namespaces/${this.domainName}/jobs/${jobName}/${reqUrl}`, '').then(() => {
         this.$message.successNotify('操作成功');
-        this.refreshPage();
+        this.init();
       })
       .catch(() => { this.$http.buildErrorHandler(`${reqUrl}请求失败！`); });
     },
@@ -439,19 +493,37 @@ export default {
       })
       .catch(() => { this.$http.buildErrorHandler('获取作业总数失败！'); });
     },
-    getJobList(params) {
-      this.tableLoading = true;
-      this.$http.get(`/console/namespaces/${this.domainName}/jobs`, params).then((data) => {
+    getJobList() {
+      const filtersParams = Object.create(null);
+      Object.entries(this.filters).forEach((item) => {
+        if (Array.isArray(item[1])) {
+          if (item[1].length > 0) {
+            filtersParams[item[0]] = item[1];
+          }
+        } else {
+          // eslint-disable-next-line no-lonely-if
+          if (item[1] !== '' && item[1] !== undefined) {
+            filtersParams[item[0]] = item[1];
+          }
+        }
+      });
+      const params = {
+        size: this.pageSize,
+        page: this.currentPage,
+        order: this.order,
+        ...filtersParams,
+      };
+      if (params.groups && params.groups.length > 0) {
+        this.$set(params, 'groups', params.groups.join(','));
+      }
+      return this.$http.get(`/console/namespaces/${this.domainName}/jobs`, params).then((data) => {
         this.jobList = data.jobs;
         this.total = data.totalNumber;
         if (this.jobList) {
           this.getShardings();
         }
       })
-      .catch(() => { this.$http.buildErrorHandler('获取作业列表请求失败！'); })
-      .finally(() => {
-        this.tableLoading = false;
-      });
+      .catch(() => { this.$http.buildErrorHandler('获取作业列表请求失败！'); });
     },
     getGroupList() {
       return this.$http.get(`/console/namespaces/${this.domainName}/jobs/groups`).then((data) => {
@@ -461,20 +533,27 @@ export default {
     },
     init() {
       this.loading = true;
-      Promise.all([this.getJobTotal(), this.getGroupList()]).then(() => {
+      Promise.all([this.getJobTotal(), this.getJobList(), this.getGroupList()]).then(() => {
         this.loading = false;
       });
     },
-    refreshPage() {
-      this.$refs.pageListRef.search();
+    routerRefresh() {
+      this.filters = JSON.parse(JSON.stringify(this.$option.jobOverviewFilters));
+      this.pageSize = 25;
+      this.currentPage = 1;
+      this.order = '';
       this.init();
+    },
+    filterJobList() {
+      this.currentPage = 1;
+      this.getJobList();
     },
   },
   created() {
     this.init();
   },
   watch: {
-    $route: 'init',
+    $route: 'routerRefresh',
   },
   computed: {
     domainName() {

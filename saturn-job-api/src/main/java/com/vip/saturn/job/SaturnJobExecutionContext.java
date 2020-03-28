@@ -28,6 +28,8 @@ public class SaturnJobExecutionContext implements Serializable {
 	 */
 	private List<Integer> shardingItems;
 
+	private String queueName;
+
 	/**
 	 * 运行在本作业项的分片序列号和个性化参数列表.
 	 */
@@ -90,6 +92,13 @@ public class SaturnJobExecutionContext implements Serializable {
 				this.customContext = (Map) res;
 			}
 
+			field = clazz.getDeclaredField("queueName");
+			field.setAccessible(true);
+			res = field.get(source);
+			if (res != null) {
+				this.queueName = (String) res;
+			}
+
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
@@ -143,4 +152,11 @@ public class SaturnJobExecutionContext implements Serializable {
 		this.customContext = customContext;
 	}
 
+	public String getQueueName() {
+		return queueName;
+	}
+
+	public void setQueueName(String queueName) {
+		this.queueName = queueName;
+	}
 }

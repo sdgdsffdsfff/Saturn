@@ -21,4 +21,11 @@ public interface NamespaceService {
 	Map<String, List> importJobsFromNamespaceToNamespace(String srcNamespace, String destNamespace, String createdBy)
 			throws SaturnJobConsoleException;
 
+	/**
+	 * 删除域
+	 * @param namespace
+	 * @throws SaturnJobConsoleException
+	 */
+	void deleteNamespace(String namespace) throws SaturnJobConsoleException;
+
 }

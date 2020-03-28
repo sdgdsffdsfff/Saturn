@@ -66,16 +66,29 @@
         from job_config
         <where>
             namespace = #{namespace,jdbcType=VARCHAR}
-            <if test="condition.groups != null">
-                and (
-                groups = #{condition.groups}
-                <if test="condition.groups == ''">
-                    or groups is NULL
-                </if>
-                )
-            </if>
+            <choose>
+                <when test="condition.groups == null"></when>
+                <when test="condition.groups == ''">
+                    and (groups = #{condition.groups} or groups is NULL)
+                </when>
+                <otherwise>
+                    and (
+                        <foreach collection="condition.groups.split(',')" item="item" separator="or">
+                            <if test="item != '未分组'">
+                                FIND_IN_SET(#{item}, groups)
+                            </if>
+                            <if test="item == '未分组'">
+                                (groups = '' or groups is NULL)
+                            </if>
+                        </foreach>
+                    )
+                </otherwise>
+            </choose>
             <if test="condition.isEnabled != null">
                 and is_enabled = #{condition.isEnabled}
+            </if>
+	    <if test="condition.jobType != null">
+                and job_type = #{condition.jobType}
             </if>
             <choose>
                 <when test="condition.jobName != null">
@@ -83,6 +96,9 @@
                 </when>
                 <when test="condition.description != null">
                     and description like CONCAT('%',#{condition.description},'%')
+                </when>
+                <when test="condition.queueName != null">
+                    and queue_name like CONCAT('%',#{condition.queueName},'%')
                 </when>
             </choose>
         </where>
@@ -103,16 +119,29 @@
         from job_config
         <where>
             namespace = #{namespace,jdbcType=VARCHAR}
-            <if test="condition.groups != null">
-                and (
-                groups = #{condition.groups}
-                <if test="condition.groups == ''">
-                    or groups is NULL
-                </if>
-                )
-            </if>
+            <choose>
+                <when test="condition.groups == null"></when>
+                <when test="condition.groups == ''">
+                    and (groups = #{condition.groups} or groups is NULL)
+                </when>
+                <otherwise>
+                    and (
+                    <foreach collection="condition.groups.split(',')" item="item" separator="or">
+                        <if test="item != '未分组'">
+                            FIND_IN_SET(#{item}, groups)
+                        </if>
+                        <if test="item == '未分组'">
+                            (groups = '' or groups is NULL)
+                        </if>
+                    </foreach>
+                    )
+                </otherwise>
+            </choose>
             <if test="condition.isEnabled != null">
                 and is_enabled = #{condition.isEnabled}
+            </if>
+	    <if test="condition.jobType != null">
+                and job_type = #{condition.jobType}
             </if>
             <choose>
                 <when test="condition.jobName != null">
@@ -120,6 +149,9 @@
                 </when>
                 <when test="condition.description != null">
                     and description like CONCAT('%',#{condition.description},'%')
+                </when>
+                <when test="condition.queueName != null">
+                    and queue_name like CONCAT('%',#{condition.queueName},'%')
                 </when>
             </choose>
         </where>
@@ -144,9 +176,22 @@
         and job_name = #{jobName,jdbcType=VARCHAR} limit 0,1
     </select>
 
+    <select id="findConfigsByQueue" resultMap="BaseResultMap">
+        select
+        <include refid="Base_Column_List"/>
+        from job_config
+        where queue_name = #{queueName,jdbcType=VARCHAR}
+        order by job_name
+    </select>
+
     <delete id="deleteByPrimaryKey" parameterType="java.lang.Long">
         delete from job_config
         where id = #{id,jdbcType=BIGINT}
+    </delete>
+
+    <delete id="deleteByNamespace" parameterType="java.lang.String">
+        delete from job_config
+        where namespace = #{namespace,jdbcType=VARCHAR}
     </delete>
 
     <insert id="insert" parameterType="com.vip.saturn.job.console.mybatis.entity.JobConfig4DB">
@@ -237,6 +282,48 @@
         last_update_by = #{lastUpdateBy,jdbcType=VARCHAR},
         last_update_time = #{lastUpdateTime,jdbcType=TIMESTAMP}
         where namespace = #{namespace,jdbcType=VARCHAR} and job_name = #{jobName,jdbcType=VARCHAR}
+    </update>
+
+    <update id="addToGroups">
+        UPDATE job_config
+        SET last_update_by = #{lastUpdateBy,jdbcType=VARCHAR},
+        groups =
+        (
+        CASE
+            WHEN groups REGEXP '^${groupName},' THEN groups
+            WHEN groups REGEXP ',${groupName}$' THEN groups
+            WHEN groups REGEXP ',${groupName},' THEN groups
+            WHEN groups IS NULL OR groups = '' THEN CONCAT(groups,'${groupName}')
+            ELSE CONCAT(groups,',${groupName}')
+        END
+        )
+        WHERE namespace = #{namespace,jdbcType=VARCHAR}
+        AND job_name IN
+        <foreach collection="jobNames" index="index" item="item"
+                 separator="," open="(" close=")">
+            #{item,jdbcType=VARCHAR}
+        </foreach>
+    </update>
+
+    <update id="batchSetGroups">
+        UPDATE job_config
+        SET last_update_by = #{lastUpdateBy,jdbcType=VARCHAR},
+        groups =
+        (
+        CASE
+            WHEN groups REGEXP '^${groupName},' THEN RIGHT(groups, LENGTH(groups) - LENGTH('${groupName},'))
+            WHEN groups REGEXP ',${groupName}$' THEN LEFT(groups, LENGTH(groups) - LENGTH(',${groupName}'))
+            WHEN groups REGEXP ',${groupName},' THEN REPLACE(groups, ',${groupName},', ',')
+            WHEN groups = '${groupName}' THEN ''
+            ELSE groups
+        END
+        )
+        WHERE namespace = #{namespace,jdbcType=VARCHAR}
+        AND job_name IN
+        <foreach collection="jobNames" index="index" item="item"
+                 separator="," open="(" close=")">
+            #{item,jdbcType=VARCHAR}
+        </foreach>
     </update>
 
 </mapper>

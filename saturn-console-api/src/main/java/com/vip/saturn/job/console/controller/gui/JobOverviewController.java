@@ -12,7 +12,6 @@ import com.vip.saturn.job.console.service.JobService;
 import com.vip.saturn.job.console.utils.*;
 import io.swagger.annotations.ApiResponse;
 import io.swagger.annotations.ApiResponses;
-import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
@@ -62,10 +61,7 @@ public class JobOverviewController extends AbstractGUIController {
 		if (condition.containsKey(QUERY_CONDITION_STATUS)) {
 			String statusStr = checkAndGetParametersValueAsString(condition, QUERY_CONDITION_STATUS, false);
 			JobStatus jobStatus = JobStatus.getJobStatus(statusStr);
-			if (jobStatus != null) {
-				return new SuccessResponseEntity(
-						getJobOverviewByStatusAndPage(namespace, jobStatus, condition, page, size));
-			}
+			return new SuccessResponseEntity(getJobOverviewByStatusAndPage(namespace, jobStatus, condition, page, size));
 		}
 		return new SuccessResponseEntity(getJobOverviewByPage(namespace, condition, page, size));
 	}
@@ -154,12 +150,12 @@ public class JobOverviewController extends AbstractGUIController {
 			}
 
 			Pageable pageable = PageableUtil.generatePageble(page, size);
-
-			List<JobConfig> targetJobs = getJobSubListByPage(unSystemJobs, pageable);
+			// 当 jobStatus 为null时，底层取数据已经做了分页，此处无需再次分页
+			List<JobConfig> targetJobs = jobStatus == null ? unSystemJobs : getJobSubListByPage(unSystemJobs, pageable);
 			List<JobOverviewJobVo> jobOverviewList = updateJobOverviewDetail(namespace, targetJobs, jobStatus);
 
 			jobOverviewVo.setJobs(jobOverviewList);
-			jobOverviewVo.setTotalNumber(unSystemJobs.size());
+			jobOverviewVo.setTotalNumber(jobService.countUnSystemJobsWithCondition(namespace, condition));
 		} catch (SaturnJobConsoleException e) {
 			throw e;
 		} catch (Exception e) {
@@ -206,10 +202,6 @@ public class JobOverviewController extends AbstractGUIController {
 				SaturnBeanUtils.copyProperties(jobConfig, jobOverviewJobVo);
 
 				updateJobTypesInOverview(jobConfig, jobOverviewJobVo);
-
-				if (StringUtils.isBlank(jobOverviewJobVo.getGroups())) {
-					jobOverviewJobVo.setGroups(SaturnConstants.NO_GROUPS_LABEL);
-				}
 
 				if (jobStatus == null) {
 					jobOverviewJobVo.setStatus(jobService.getJobStatus(namespace, jobConfig));
@@ -452,6 +444,23 @@ public class JobOverviewController extends AbstractGUIController {
 	public SuccessResponseEntity getExecutors(final HttpServletRequest request, @PathVariable String namespace,
 			@PathVariable String jobName) throws SaturnJobConsoleException {
 		return new SuccessResponseEntity(jobService.getCandidateExecutors(namespace, jobName));
+	}
+
+	/**
+	 * 批量设置作业的分组
+	 */
+	@ApiResponses(value = {@ApiResponse(code = 200, message = "Success/Fail", response = RequestResult.class)})
+	@Audit
+	@PostMapping(value = "/batchSetGroups")
+	public SuccessResponseEntity batchSetGroups(final HttpServletRequest request,
+			@AuditParam("namespace") @PathVariable String namespace,
+			@AuditParam("jobNames") @RequestParam List<String> jobNames,
+			@AuditParam("oldGroupNames") @RequestParam List<String> oldGroupNames,
+			@AuditParam("newGroupNames") @RequestParam List<String> newGroupNames) throws SaturnJobConsoleException {
+		assertIsPermitted(PermissionKeys.jobBatchSetPreferExecutors, namespace);
+		String userName = getCurrentLoginUserName();
+		jobService.batchSetGroups(namespace, jobNames, oldGroupNames, newGroupNames, userName);
+		return new SuccessResponseEntity();
 	}
 
 }

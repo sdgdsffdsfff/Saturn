@@ -1,7 +1,10 @@
 <template>
     <div class="page-content" v-loading="loading" element-loading-text="请稍等···">
         <el-form :model="jobSettingInfo" :rules="rules" ref="jobSettingInfo" label-width="140px">
-            <el-button type="primary" v-if="$common.hasPerm('job:update', domainName)" @click.stop="updateInfo" style="margin-bottom: 10px;" :disabled="jobSettingInfo.enabled"><i class="fa fa-database"></i>更新</el-button>
+            <div v-if="$common.hasPerm('job:update', domainName)" style="margin-bottom: 10px;">
+              <el-button type="primary" @click.stop="updateInfo(false)" :disabled="jobSettingInfo.enabled"><i class="fa fa-database"></i>更新</el-button>
+              <el-button type="primary" @click.stop="updateInfo(true)" :disabled="jobSettingInfo.enabled"><i class="fa fa-play-circle"></i>更新并启用</el-button>
+            </div>
             <el-collapse v-model="activeNames">
                 <el-collapse-item name="1">
                     <template slot="title">
@@ -58,18 +61,6 @@
                                              <span>{{ jobSettingInfo.downStream.length > 0 ? '该作业有下游作业，不可选为本地模式' : '本地模式'}}</span>
                                         </div>
                                         <el-switch v-model="jobSettingInfo.localMode" :disabled="jobSettingInfo.downStream.length > 0"></el-switch>
-                                    </el-tooltip>
-                                </el-form-item>
-                            </el-col>
-                        </el-row>
-                        <el-row v-if="$option.isMsg(jobSettingInfo.jobType)">
-                            <el-col :span="22">
-                                <el-form-item prop="queueName" label="Queue名">
-                                    <el-tooltip popper-class="form-tooltip" placement="bottom">
-                                        <div slot="content">
-                                            消息类型job的queue名
-                                        </div>
-                                        <el-input type="textarea" v-model="jobSettingInfo.queueName"></el-input>
                                     </el-tooltip>
                                 </el-form-item>
                             </el-col>
@@ -149,7 +140,27 @@
                         <el-row>
                             <el-col :span="22">
                                 <el-form-item prop="groups" label="所属分组">
-                                    <el-input v-model="jobSettingInfo.groups"></el-input>
+                                    <el-tag
+                                      :key="group"
+                                      v-for="group in jobSettingInfo.groups"
+                                      type="primary"
+                                      closable
+                                      :disable-transitions="false"
+                                      style="margin: 0 3px 3px 0;"
+                                      @close="handleDeleteGroup(group)">
+                                      {{group}}
+                                    </el-tag>
+                                    <el-autocomplete
+                                      v-if="inputGroupVisible"
+                                      v-model="groupSelected"
+                                      ref="saveGroupInput"
+                                      :fetch-suggestions="querySearchGroups"
+                                      placeholder="请添加或选择分组"
+                                      @select="handleInputGroup"
+                                      @keyup.enter.native="handleInputGroup"
+                                    >
+                                    </el-autocomplete>
+                                    <el-button v-else size="small" @click="showInput">+ 分组</el-button>
                                 </el-form-item>
                             </el-col>
                         </el-row>
@@ -183,11 +194,6 @@
                             <el-col :span="$option.isMsg(jobSettingInfo.jobType) ? 7 : 11">
                                 <el-form-item prop="enabledReport" label="上报运行状态">
                                     <el-switch v-model="jobSettingInfo.enabledReport"></el-switch>
-                                </el-form-item>
-                            </el-col>
-                            <el-col :span="$option.isMsg(jobSettingInfo.jobType) ? 7 : 11" v-if="$option.isMsg(jobSettingInfo.jobType)">
-                                <el-form-item prop="useSerial" label="串行消费">
-                                    <el-switch v-model="jobSettingInfo.useSerial"></el-switch>
                                 </el-form-item>
                             </el-col>
                         </el-row>
@@ -266,7 +272,10 @@
                     </div>
                 </el-collapse-item>
             </el-collapse>
-            <el-button type="primary" v-if="$common.hasPerm('job:update', domainName)" @click.stop="updateInfo" style="margin-top: 10px;" :disabled="jobSettingInfo.enabled"><i class="fa fa-database"></i>更新</el-button>
+            <div v-if="$common.hasPerm('job:update', domainName)" style="margin-top: 10px;">
+              <el-button type="primary" @click.stop="updateInfo(false)" :disabled="jobSettingInfo.enabled"><i class="fa fa-database"></i>更新</el-button>
+              <el-button type="primary" @click.stop="updateInfo(true)" :disabled="jobSettingInfo.enabled"><i class="fa fa-play-circle"></i>更新并启用</el-button>
+            </div>
         </el-form>
         <div v-if="isCronPredictVisible">
             <CronPredictDialog :cron-predict-params="cronPredictParams" @close-dialog="closeCronDialog"></CronPredictDialog>
@@ -293,9 +302,55 @@ export default {
       preferListProvidedArray: [],
       isArrangeLayoutVisible: false,
       arrangeLayoutInfo: {},
+      inputGroupVisible: false,
+      groupSelected: '',
+      groupList: [],
     };
   },
   methods: {
+    handleDeleteGroup(group) {
+      this.jobSettingInfo.groups.splice(this.jobSettingInfo.groups.indexOf(group), 1);
+    },
+    showInput() {
+      this.inputGroupVisible = true;
+      this.$nextTick(() => {
+        this.$refs.saveGroupInput.$refs.input.focus();
+      });
+    },
+    validateGroup(group) {
+      let flag = false;
+      const parten = /^[\u4e00-\u9fa5_a-zA-Z0-9]+$/;
+      if (group.length > 10) {
+        this.$message.errorMessage('分组名称不能超过10个字符');
+      } else if (!parten.test(group)) {
+        this.$message.errorMessage('分组名称不能使用特殊字符');
+      } else if (this.jobSettingInfo.groups.includes(group)) {
+        this.$message.errorMessage('该分组已被选择！');
+      } else {
+        flag = true;
+      }
+      return flag;
+    },
+    handleInputGroup() {
+      const groupSelected = this.groupSelected;
+      if (groupSelected) {
+        if (this.validateGroup(groupSelected)) {
+          this.jobSettingInfo.groups.push(groupSelected);
+        }
+      }
+      this.inputGroupVisible = false;
+      this.groupSelected = '';
+    },
+    querySearchGroups(queryString, cb) {
+      const groupList = this.groupList;
+      const results = queryString ?
+      groupList.filter(this.createStateFilter(queryString)) : groupList;
+      cb(results);
+    },
+    createStateFilter(queryString) {
+      return state =>
+        state.value.indexOf(queryString) >= 0;
+    },
     handleArrangeLayout() {
       this.$http.get(`/console/namespaces/${this.domainName}/jobs/arrangeLayout`).then((data) => {
         this.arrangeLayoutInfo = data;
@@ -325,16 +380,30 @@ export default {
     closeCronDialog() {
       this.isCronPredictVisible = false;
     },
-    updateInfo() {
+    updateInfo(active) {
       this.$refs.jobSettingInfo.validate((valid) => {
         if (valid) {
+          const paramsInfo = JSON.parse(JSON.stringify(this.jobSettingInfo));
+          if (paramsInfo.groups.length > 0) {
+            this.$set(paramsInfo, 'groups', paramsInfo.groups.join(','));
+          }
           if (this.validateLocalMode()) {
-            if (this.jobSettingInfo.localMode) {
-              this.jobSettingInfo.shardingTotalCount = 1;
+            if (paramsInfo.localMode) {
+              paramsInfo.shardingTotalCount = 1;
+            }
+            if (paramsInfo.preferList.length > 0) {
+              paramsInfo.preferList.forEach((ele1, index1) => {
+                paramsInfo.preferListProvided.forEach((ele2) => {
+                  if (ele1 === ele2.executorName && ele2.type === 'DOCKER') {
+                    // eslint-disable-next-line no-param-reassign
+                    paramsInfo.preferList[index1] = `@${ele1}`;
+                  }
+                });
+              });
             }
             if (this.validateShardingParamsNumber()) {
               if (this.validateShardingParam()) {
-                this.jobSettingInfoRequest();
+                this.jobSettingInfoRequest(paramsInfo, active);
               } else {
                 this.$message.errorMessage('请正确输入分片参数!');
               }
@@ -347,21 +416,38 @@ export default {
         }
       });
     },
-    jobSettingInfoRequest() {
-      if (this.jobSettingInfo.preferList.length > 0) {
-        this.jobSettingInfo.preferList.forEach((ele1, index1) => {
-          this.jobSettingInfo.preferListProvided.forEach((ele2) => {
-            if (ele1 === ele2.executorName && ele2.type === 'DOCKER') {
-              this.jobSettingInfo.preferList[index1] = `@${ele1}`;
-            }
-          });
-        });
-      }
-      this.$http.post(`/console/namespaces/${this.domainName}/jobs/${this.jobName}/config`, this.jobSettingInfo).then(() => {
-        this.getJobSettingInfo();
-        this.$message.successNotify('更新作业操作成功');
+    jobSettingInfoRequest(paramsInfo, active) {
+      this.loading = true;
+      this.$http.post(`/console/namespaces/${this.domainName}/jobs/${this.jobName}/config`, paramsInfo).then(() => {
+        if (active) {
+          this.activeRequest();
+        } else {
+          this.updateInfoSuccess();
+          this.$message.successNotify('更新作业操作成功');
+        }
       })
-      .catch(() => { this.$http.buildErrorHandler('更新作业请求失败！'); });
+      .catch(() => { this.$http.buildErrorHandler('更新作业请求失败！'); })
+      .finally(() => {
+        this.loading = false;
+      });
+    },
+    activeRequest() {
+      this.loading = true;
+      this.$http.post(`/console/namespaces/${this.domainName}/jobs/${this.jobName}/enable`, '').then(() => {
+        this.updateInfoSuccess();
+        this.$message.successNotify('更新并启用作业操作成功');
+      })
+      .catch(() => { this.$http.buildErrorHandler('更新并启用作业请求失败！'); })
+      .finally(() => {
+        this.loading = false;
+      });
+    },
+    updateInfoSuccess() {
+      this.loading = true;
+      Promise.all([this.getGroupList(), this.getJobSettingInfo()]).then()
+      .finally(() => {
+        this.loading = false;
+      });
     },
     validateLocalMode() {
       let flag = true;
@@ -419,12 +505,24 @@ export default {
         domainName: this.domainName,
         jobName: this.jobName,
       };
-      this.loading = true;
       this.$store.dispatch('setJobInfo', params).then((resp) => {
         console.log(resp);
       })
-      .catch(() => this.$http.buildErrorHandler('获取作业信息请求失败！'))
-      .finally(() => {
+      .catch(() => this.$http.buildErrorHandler('获取作业信息请求失败！'));
+    },
+    getGroupList() {
+      return this.$http.get(`/console/namespaces/${this.domainName}/jobs/groups`).then((data) => {
+        this.groupList = data.filter(v => v !== '未分组').map((obj) => {
+          const rObj = {};
+          rObj.value = obj;
+          return rObj;
+        });
+      })
+      .catch(() => { this.$http.buildErrorHandler('获取groups失败！'); });
+    },
+    init() {
+      this.loading = true;
+      Promise.all([this.getGroupList()]).then(() => {
         this.loading = false;
       });
     },
@@ -545,6 +643,9 @@ export default {
         }
       },
     },
+  },
+  created() {
+    this.init();
   },
 };
 </script>

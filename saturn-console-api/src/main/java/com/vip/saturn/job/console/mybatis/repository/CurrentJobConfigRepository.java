@@ -13,6 +13,8 @@ public interface CurrentJobConfigRepository {
 
 	int deleteByPrimaryKey(Long id);
 
+	int deleteByNamespace(String namespace);
+
 	int insert(JobConfig4DB currentJobConfig);
 
 	int updateByPrimaryKey(JobConfig4DB currentJobConfig);
@@ -36,4 +38,9 @@ public interface CurrentJobConfigRepository {
 	JobConfig4DB findConfigByNamespaceAndJobName(@Param("namespace") String namespace,
 			@Param("jobName") String jobName);
 
+	List<JobConfig4DB> findConfigsByQueue(@Param("queueName") String queueName);
+
+	void batchSetGroups(@Param("namespace") String namespace, @Param("jobNames") List<String> jobNames, @Param("groupName") String groupName, @Param("lastUpdateBy") String lastUpdateBy);
+
+	void addToGroups(@Param("namespace") String namespace, @Param("jobNames") List<String> jobNames, @Param("groupName") String groupName, @Param("lastUpdateBy") String lastUpdateBy);
 }
